@@ -2,6 +2,7 @@ import pandas as pd
 from pandas import Series, DataFrame
 import datetime
 from datetime import datetime as dt
+from datetime import date, time
 import tkinter as tk
 from tkinter import filedialog, Text
 from tkinter import *
@@ -92,12 +93,31 @@ def ampsIntegral(startT, endT, ex, multiplier):
     ex.value *=((1.73*multiplier)/1000000)
     return mvaIntegral(startT, endT, ex)
 
+#Translates month string to numerical value
+def monthToNum(month):
+    month = month.lower()
+    switcher ={
+        'jan': 1,
+        'feb': 2,
+        'mar': 3,
+        'apr': 4,
+        'may': 5,
+        'jun': 6,
+        'jul': 7,
+        'aug': 8,
+        'sep': 9,
+        'oct': 10,
+        'nov': 11,
+        'dec': 12
+    }
+    return switcher.get(month, 0)
+
 #what happens when submit button is pressed
 def submit():
     #Clears what was previously on screen
     for widget in frame.winfo_children():
         widget.destroy()
-    #Multi file mode    
+    #Single date mode    
     if (singleFile.get() == 0):
         for file in files:
             #setting up dataframe
@@ -125,7 +145,7 @@ def submit():
                     widget.destroy()
                 label = tk.Label(frame, text = 'Invalid time entry, start time must be before end time', bg ='#E9E8D7')
                 label.pack()
-            elif (startT < stringToHours(dateToHrs(ex.time[len(ex.time)-2]))):
+            elif (startT < stringToHours(dateToHrs(ex.time[len(ex.time)-1]))):
                 for widget in frame.winfo_children():
                     widget.destroy()
                 label = tk.Label(frame, text = 'Invalid time entry, start time must be later', bg ='#E9E8D7')
@@ -142,14 +162,63 @@ def submit():
                 if (unit == "MW.MV" or unit == "MVA.MV"):
                     integral = mvaIntegral(startT, endT, ex)
                 elif (unit == "AMPS.MV"):
-                    print(multiplier)
                     integral = ampsIntegral(startT, endT, ex, multiplier)
                 else:
-                    print("Unsupported format, only MVA, MW, and AMPS are supported as of now")
+                    unsup = tk.Label(frame, text ="Unsupported format, only MVA, MW, and AMPS are supported as of now", bg ='#E9E8D7')
+                    unsup.pack()
                 t ="File Name: " + os.path.basename(file).split('/')[-1] + "\noutput from " + startTimeStr + " to " +endTimeStr + ":       " + str(integral) + " MWH\n" 
                 label = tk.Label(frame, text = t, bg ='#E9E8D7')
                 label.pack() 
-    # else:
+    #multiple date mode
+    else:
+        for file in files:
+            #setting up dataframe
+            ex = pd.read_csv(file, on_bad_lines='skip')
+            unit = ex.columns[1].split(' ')[-1]
+            multiplier = 0
+            if (unit == "AMPS.MV"):
+                if ("W" in ex.columns[1].split(" ")[1]):
+                    multiplier = 13800
+                if ("L" in ex.columns[1].split(" ")[1]):
+                    multiplier = 13200
+            ex = ex.drop([0,1])
+            ex.columns = ['time', 'value']
+            ex = ex.dropna()
+            ex = ex.reset_index()
+            ex = ex.drop('index', axis = 1)
+            
+            # getting user input for date and time 
+            startTimeArr = [int(x) for x in startEntry.get().split(":")]
+            endTimeArr = [int(x) for x in endEntry.get().split(":")]
+            startDateArr = [int(x) for x in startDate.get().split("/")]
+            endDateArr = [int(x) for x in endDate.get().split("/")]
+            start = dt(year=startDateArr[2], month=startDateArr[0], day=startDateArr[1], hour=startTimeArr[0], minute=startTimeArr[1], second=startTimeArr[2])
+            end = dt(year=endDateArr[2], month=endDateArr[0], day=endDateArr[1], hour=endTimeArr[0], minute=endTimeArr[1], second=endTimeArr[2])
+            earliestDate = ex.time[len(ex.time)-1].split(" ")[0].split("-")
+            earliestTime = [int(x) for x in ex.time[len(ex.time)-1].split(" ")[1].split(":")]
+            earliest = dt(year=int(earliestDate[2]), day=int(earliestDate[0]), month=monthToNum(earliestDate[1]), hour=earliestTime[0], minute=earliestTime[1], second=earliestTime[2])
+            latestDate = ex.time[0].split(" ")[0].split("-")
+            latestTime = [int(x) for x in ex.time[0].split(" ")[1].split(":")]
+            latest =  dt(year=int(latestDate[2]), day=int(latestDate[0]), month=monthToNum(latestDate[1]), hour=latestTime[0], minute=latestTime[1], second=latestTime[2])
+            print(earliest)
+            print(latest)
+            print(start)
+            print(end)
+            if (start > end):
+                for widget in frame.winfo_children():
+                    widget.destroy()
+                label = tk.Label(frame, text = 'Invalid time entry, start time must be before end time', bg ='#E9E8D7')
+                label.pack()
+            elif (start < earliest):
+                for widget in frame.winfo_children():
+                    widget.destroy()
+                label = tk.Label(frame, text = 'Invalid time entry, start must be later', bg ='#E9E8D7')
+                label.pack()                
+            elif (end > latest):
+                for widget in frame.winfo_children():
+                    widget.destroy()
+                label = tk.Label(frame, text = 'Invalid time entry, end must be earlier', bg ='#E9E8D7')
+                label.pack()                                
 
 
 #tkinter setup
@@ -202,7 +271,7 @@ clearButton = Button(root, text = "Clear Values", command = clear)
 clearButton.pack(side= RIGHT)
 
 
-checkBox = Checkbutton(root, text="Single File Mode (Use for 1 file with multiple dates)", variable= singleFile, command = changeEntry)
+checkBox = Checkbutton(root, text="Multiple date mode (files with >1 days)", variable= singleFile, command = changeEntry)
 checkBox.pack(side = TOP)
 
 root.mainloop()

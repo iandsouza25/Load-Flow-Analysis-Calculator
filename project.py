@@ -18,7 +18,6 @@ root.resizable(0, 0)
 files = []
 singleFile = IntVar()
 
-
 #function that takes string in HH:MM:SS format and converts it to a number representing hours
 def stringToHours(hms):
     timeObj = dt.strptime(hms, '%H:%M:%S').time()
@@ -79,13 +78,31 @@ def changeEntry():
 def mvaIntegral(startT, endT, ex):
     times = ex.time
     integral = 0
-    for i in range(len(times) -1):
+    for i in range(len(times) -2):
         time = stringToHours(dateToHrs(times[i]))
         if (time >= startT and time <=endT):
             nextTime = stringToHours(dateToHrs(times[i+1]))
             deltaT = time - nextTime
             integral += deltaT * float(ex.value[i]) 
     return integral
+
+#MVA and MW integral calculations for multi-date mode
+def mvaIntegralMulti(startT, endT, ex):
+    times = ex.time
+    integral = 0
+    for i in range(len(times) -2):
+        time = strToDT(times[i])
+        if (time >= startT and time <=endT):
+            nextTime =strToDT(times[i+1])
+            deltaT = (time - nextTime).total_seconds()/3600
+            integral += deltaT * float(ex.value[i]) 
+    return integral
+
+#AMPS calculations for multi-date mode
+def ampsIntegralMulti(startT, endT, ex, multiplier):
+    ex.value = ex.value.astype(float)
+    ex.value *=((1.73*multiplier)/1000000)
+    return mvaIntegralMulti(startT, endT, ex)
 
 #performs integral calculation for amps
 def ampsIntegral(startT, endT, ex, multiplier):
@@ -111,6 +128,14 @@ def monthToNum(month):
         'dec': 12
     }
     return switcher.get(month, 0)
+
+#Function that takes a string in the format given by PI and returns a datetime object
+def strToDT(str):
+    str = str.split(" ")
+    date = str[0].split("-")
+    time = [int(x) for x in str[1].split(":")]
+    return dt(year=int(date[2]), day=int(date[0]), month=monthToNum(date[1]), hour=time[0], minute=time[1], second=time[2])
+
 
 #what happens when submit button is pressed
 def submit():
@@ -145,7 +170,7 @@ def submit():
                     widget.destroy()
                 label = tk.Label(frame, text = 'Invalid time entry, start time must be before end time', bg ='#E9E8D7')
                 label.pack()
-            elif (startT < stringToHours(dateToHrs(ex.time[len(ex.time)-1]))):
+            elif (startT < stringToHours(dateToHrs(ex.time[len(ex.time)-2]))):
                 for widget in frame.winfo_children():
                     widget.destroy()
                 label = tk.Label(frame, text = 'Invalid time entry, start time must be later', bg ='#E9E8D7')
@@ -194,16 +219,9 @@ def submit():
             endDateArr = [int(x) for x in endDate.get().split("/")]
             start = dt(year=startDateArr[2], month=startDateArr[0], day=startDateArr[1], hour=startTimeArr[0], minute=startTimeArr[1], second=startTimeArr[2])
             end = dt(year=endDateArr[2], month=endDateArr[0], day=endDateArr[1], hour=endTimeArr[0], minute=endTimeArr[1], second=endTimeArr[2])
-            earliestDate = ex.time[len(ex.time)-1].split(" ")[0].split("-")
-            earliestTime = [int(x) for x in ex.time[len(ex.time)-1].split(" ")[1].split(":")]
-            earliest = dt(year=int(earliestDate[2]), day=int(earliestDate[0]), month=monthToNum(earliestDate[1]), hour=earliestTime[0], minute=earliestTime[1], second=earliestTime[2])
-            latestDate = ex.time[0].split(" ")[0].split("-")
-            latestTime = [int(x) for x in ex.time[0].split(" ")[1].split(":")]
-            latest =  dt(year=int(latestDate[2]), day=int(latestDate[0]), month=monthToNum(latestDate[1]), hour=latestTime[0], minute=latestTime[1], second=latestTime[2])
-            print(earliest)
-            print(latest)
-            print(start)
-            print(end)
+            earliest = strToDT(ex.time[len(ex.time)-2])
+            latest = strToDT(ex.time[0])
+            #Checks for unusable cases
             if (start > end):
                 for widget in frame.winfo_children():
                     widget.destroy()
@@ -218,7 +236,21 @@ def submit():
                 for widget in frame.winfo_children():
                     widget.destroy()
                 label = tk.Label(frame, text = 'Invalid time entry, end must be earlier', bg ='#E9E8D7')
-                label.pack()                                
+                label.pack()
+            #Working case
+            else:
+                # computing integral
+                integral = 0
+                if (unit == "MW.MV" or unit == "MVA.MV"):
+                    integral = mvaIntegralMulti(start, end, ex)
+                elif (unit == "AMPS.MV"):
+                    integral = ampsIntegralMulti(start, end, ex, multiplier)
+                else:
+                    unsup = tk.Label(frame, text ="Unsupported format, only MVA, MW, and AMPS are supported as of now", bg ='#E9E8D7')
+                    unsup.pack()
+                t ="File Name: " + os.path.basename(file).split('/')[-1] + "\noutput from " + startDate.get() + " at " + startEntry.get() + " to " +endDate.get() + " at " + endEntry.get() +":       " + str(integral) + " MWH\n" 
+                label = tk.Label(frame, text = t, bg ='#E9E8D7')
+                label.pack()                                                 
 
 
 #tkinter setup
@@ -230,10 +262,11 @@ frame = tk.Frame(master=root, bg = "#E9E8D7")
 frame.place(relwidth = 0.8, relheight = 0.75, relx = 0.1, rely = 0.05)
 
 
-
+#File open button
 openFile = tk.Button(root, text = "Open Files", padx = 10, pady = 5, fg ='#E9E8D7', bg = '#497A79', command = addFiles)
 openFile.pack()
 
+#Start time entry
 startEntry =tk.Entry(root)
 startEntry.config(bg = "#FFFFFF", fg = "#08272A" )
 startEntry.insert(0, "Start Time (HH:MM:SS)")
@@ -241,6 +274,7 @@ startEntry.config(width = 20)
 startEntry.pack()
 startEntry.bind("<Button-1>", startclick)
 
+#End time entry
 endEntry = tk.Entry(root)
 endEntry.config(bg = "#FFFFFF", fg = "#08272A")
 endEntry.insert(0, "End Time  (HH:MM:SS)")
@@ -248,6 +282,7 @@ endEntry.config(width = 20)
 endEntry.pack()
 endEntry.bind("<Button-1>", endclick)
 
+#Start date entry
 startDate = tk.Entry(root)
 startDate.config(bg = "#FFFFFF", fg = "#08272A")
 startDate.insert(0, "Start (MM/DD/YYYY)")
@@ -256,6 +291,8 @@ startDate.config(state='disabled')
 startDate.pack(side = 'left')
 startDate.bind('<Button-1>',startDayClick)
 
+
+#End date entry
 endDate = tk.Entry(root)
 endDate.config(bg = "#FFFFFF", fg = "#08272A")
 endDate.insert(0, "End (MM/DD/YYYY)")
@@ -264,13 +301,15 @@ endDate.config(state='disabled')
 endDate.pack(side = LEFT)
 endDate.bind('<Button-1>',endDayClick)
 
+#Submit button
 submitButton = Button(root, text = "Submit", command = submit )
 submitButton.pack(side= RIGHT)
 
+#Clear button
 clearButton = Button(root, text = "Clear Values", command = clear)
 clearButton.pack(side= RIGHT)
 
-
+#Box to switch from single date to multi date mode
 checkBox = Checkbutton(root, text="Multiple date mode (files with >1 days)", variable= singleFile, command = changeEntry)
 checkBox.pack(side = TOP)
 
